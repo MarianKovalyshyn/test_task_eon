@@ -1,12 +1,10 @@
-import os
 import base64
 
-from dotenv import load_dotenv
 from openai import OpenAI
 
+from config import OPENAI_KEY
 
-load_dotenv()
-OPENAI_KEY = os.getenv("OPENAI_KEY")
+
 client = OpenAI(api_key=OPENAI_KEY)
 
 

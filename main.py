@@ -1,25 +1,11 @@
-import logging
-import os
+from aiogram import executor, types, Bot, Dispatcher
 
-from dotenv import load_dotenv
-from aiogram import Bot, Dispatcher, executor, types
-
+from config import API_TOKEN, locations, options, final_options, user_states
 from utils import make_report
 
 
-load_dotenv()
-API_TOKEN = os.getenv("TELEGRAM_TOKEN")
-OPENAI_KEY = os.getenv("OPENAI_KEY")
-logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
-locations = ("Львів", "Київ", "Харків", "Одеса", "Дніпро")
-options = (
-    "Все було виконано вчасно",
-    "Доступна ціна",
-    "Робота на високому рівні",
-)
-final_options = ("Все чисто", "Залишити коментар")
 user_data = {}
 
 
@@ -30,13 +16,17 @@ async def send_welcome(message: types.Message):
     """
     user_id = message.from_user.id
     user_data[user_id] = dict()
+
+    for state in user_states:
+        user_data[user_id][state] = False
+
+    buttons = (types.KeyboardButton(text=location) for location in locations)
     keyboard = types.ReplyKeyboardMarkup(
         resize_keyboard=True, one_time_keyboard=True
-    )
-    buttons = (types.KeyboardButton(text=location) for location in locations)
+    ).add(*buttons)
     await message.answer(
         text="Привіт! Почнімо працювати.\nОбери одну з п'яти локацій!",
-        reply_markup=keyboard.add(*buttons),
+        reply_markup=keyboard,
     )
 
 
@@ -48,10 +38,11 @@ async def process_location(message: types.Message):
     user_id = message.from_user.id
     location = message.text
     user_data[user_id]["location"] = location
+    user_data[user_id]["location_done"] = True
+    await message.reply(f"Твою локацію було збережено!")
     user_data[user_id]["checklist_options"] = {
         option: False for option in options
     }
-    await message.reply(f"Твою локацію було збережено!")
     await send_checklist(user_id)
 
 
@@ -87,6 +78,7 @@ async def process_checklist_callback(callback_query: types.CallbackQuery):
     user_id = callback_query.from_user.id
 
     if selected_option == "Send":
+        user_data[user_id]["checklist_done"] = True
         checked_options = []
 
         for option, checked in user_data[user_id]["checklist_options"].items():
@@ -112,32 +104,36 @@ async def final_option(user_id: int):
     """
     This function will give user a final option to select before summary
     """
+    buttons = (types.KeyboardButton(text=option) for option in final_options)
     keyboard = types.ReplyKeyboardMarkup(
         resize_keyboard=True, one_time_keyboard=True
-    )
-    buttons = (types.KeyboardButton(text=option) for option in final_options)
+    ).add(*buttons)
     await bot.send_message(
         chat_id=user_id,
         text="Обери фінальний пункт:",
-        reply_markup=keyboard.add(*buttons),
+        reply_markup=keyboard,
     )
 
 
 @dp.message_handler(
-    lambda message: message.text and message.text in final_options
+    lambda message: message.text and not message.text.startswith("/")
 )
 async def process_final_option(message: types.Message):
     """
     This handler will process user's final option
     """
     selected_final_option = message.text
+    user_id = message.from_user.id
 
     if selected_final_option == "Все чисто":
         await get_report(message)
-    else:
+    elif selected_final_option == "Залишити коментар":
+        user_data[user_id]["comment_state"] = True
         await message.answer(
             "Будь ласка, напиши свій коментар:",
         )
+    else:
+        await process_comment(message)
 
 
 @dp.message_handler(
@@ -149,10 +145,22 @@ async def process_comment(message: types.Message):
     """
     user_id = message.from_user.id
 
-    if "location" not in user_data[user_id]:
+    if not user_data[user_id]["location_done"]:
         await message.answer(
             "Будь ласка, обери локацію написавши команду /start і вибравши її з пропонованого меню."
         )
+        return
+    if not user_data[user_id]["checklist_done"]:
+        await message.answer(
+            "Будь ласка, обери пункти з чек листа, вибравши їх з пропонованого меню."
+        )
+        await send_checklist(user_id)
+        return
+    if not user_data[user_id]["comment_state"]:
+        await message.answer(
+            "Будь ласка, обери фінальний пункт з чек листа, вибравши їх з пропонованого меню."
+        )
+        await final_option(user_id)
         return
 
     user_data[user_id]["comment"] = message.text
