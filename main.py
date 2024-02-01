@@ -7,6 +7,7 @@ from utils import make_report
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 user_data = {}
+checklist = "checklist_"
 
 
 @dp.message_handler(commands=["start"])
@@ -69,7 +70,7 @@ async def send_checklist(user_id: int):
     )
 
 
-@dp.callback_query_handler(lambda query: query.data.startswith("checklist_"))
+@dp.callback_query_handler(lambda query: query.data.startswith(checklist))
 async def process_checklist_callback(callback_query: types.CallbackQuery):
     """
     This handler will process user's choice from check-list
@@ -141,7 +142,7 @@ async def process_final_option(message: types.Message):
 )
 async def process_comment(message: types.Message):
     """
-    This function will process user's comment
+    This function will process user's comment and possible wrong input
     """
     user_id = message.from_user.id
 
@@ -185,6 +186,9 @@ async def process_photo(message: types.Message):
 
 @dp.message_handler(commands=["getreport"])
 async def get_report(message: types.Message):
+    """
+    This function will process and generate report for user
+    """
     user_id = message.from_user.id
     location = user_data[user_id]["location"]
     selected_checklist_options = user_data[user_id]["checklist_options"]
