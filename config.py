@@ -15,4 +15,4 @@ options = (
     "Робота на високому рівні",
 )
 final_options = ("Все чисто", "Залишити коментар")
-user_states = ("checklist_done", "location_done", "comment_state")
+user_states = ("location_state", "location_done", "checklist_done", "final_option_state", "comment_state")

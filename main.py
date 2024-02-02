@@ -10,40 +10,73 @@ user_data = {}
 checklist = "checklist_"
 
 
-@dp.message_handler(commands=["start"])
-async def send_welcome(message: types.Message):
+async def user_initialize(user_id: int):
     """
-    This handler will be called when user sends `/start` command
+    This function initializes user's data
     """
-    user_id = message.from_user.id
     user_data[user_id] = dict()
 
     for state in user_states:
         user_data[user_id][state] = False
 
+    user_data[user_id]["checklist_options"] = {
+        option: False for option in options
+    }
+
+
+@dp.message_handler(commands=["start"])
+async def send_welcome_and_location(message: types.Message):
+    """
+    This handler is called when user sends `/start` command and gives user a choice of locations
+    """
+    user_id = message.from_user.id
+    await user_initialize(message.from_user.id)
+    user_data[user_id]["location_state"] = True
     buttons = (types.KeyboardButton(text=location) for location in locations)
     keyboard = types.ReplyKeyboardMarkup(
         resize_keyboard=True, one_time_keyboard=True
     ).add(*buttons)
     await message.answer(
-        text="Привіт! Почнімо працювати.\nОбери одну з п'яти локацій!",
+        text=f"Привіт! \nОбери одну з {len(locations)} локацій!",
         reply_markup=keyboard,
     )
 
 
-@dp.message_handler(lambda message: message.text and message.text in locations)
+@dp.message_handler(lambda message: message.text and not message.text.startswith("/"))
+async def handle_message(message: types.Message):
+    user_id = message.from_user.id
+
+    if user_data[user_id]["location_state"] and message.text in locations:
+        await process_location(message)
+        return
+    if not user_data[user_id]["location_done"]:
+        await message.answer(
+            "Будь ласка, обери локацію написавши команду /start і вибравши її з пропонованого меню."
+        )
+        return
+    if not user_data[user_id]["checklist_done"]:
+        await message.answer(
+            "Будь ласка, обери пункти з чек листа, вибравши їх з пропонованого меню."
+        )
+        await send_checklist(user_id)
+        return
+    if user_data[user_id]["comment_state"]:
+        await process_comment(message)
+        return
+    if user_data[user_id]["final_option_state"]:
+        await process_final_option(message)
+        return
+
+
 async def process_location(message: types.Message):
     """
-    This handler will be called when user chose location
+    This handler is called when user chose location
     """
     user_id = message.from_user.id
     location = message.text
     user_data[user_id]["location"] = location
     user_data[user_id]["location_done"] = True
     await message.reply(f"Твою локацію було збережено!")
-    user_data[user_id]["checklist_options"] = {
-        option: False for option in options
-    }
     await send_checklist(user_id)
 
 
@@ -92,7 +125,7 @@ async def process_checklist_callback(callback_query: types.CallbackQuery):
             user_id,
             f"Готово! Ти обрав(ла) наступні пункти: {', '.join(checked_options)}.",
         )
-        await final_option(user_id)
+        await send_final_option(user_id)
     else:
         user_data[user_id]["checklist_options"][
             selected_option
@@ -101,10 +134,11 @@ async def process_checklist_callback(callback_query: types.CallbackQuery):
         await send_checklist(user_id)
 
 
-async def final_option(user_id: int):
+async def send_final_option(user_id: int):
     """
-    This function will give user a final option to select before summary
+    This function will give user a final option to select before report
     """
+    user_data[user_id]["final_option_state"] = True
     buttons = (types.KeyboardButton(text=option) for option in final_options)
     keyboard = types.ReplyKeyboardMarkup(
         resize_keyboard=True, one_time_keyboard=True
@@ -116,9 +150,6 @@ async def final_option(user_id: int):
     )
 
 
-@dp.message_handler(
-    lambda message: message.text and not message.text.startswith("/")
-)
 async def process_final_option(message: types.Message):
     """
     This handler will process user's final option
@@ -128,42 +159,23 @@ async def process_final_option(message: types.Message):
 
     if selected_final_option == "Все чисто":
         await get_report(message)
-    elif selected_final_option == "Залишити коментар":
+    if selected_final_option == "Залишити коментар":
         user_data[user_id]["comment_state"] = True
         await message.answer(
             "Будь ласка, напиши свій коментар:",
         )
     else:
-        await process_comment(message)
+        await message.answer(
+            "Будь ласка, обери фінальний пункт з пропонованого меню."
+        )
+        await send_final_option(user_id)
 
 
-@dp.message_handler(
-    lambda message: message.text and not message.text.startswith("/")
-)
 async def process_comment(message: types.Message):
     """
     This function will process user's comment and possible wrong input
     """
     user_id = message.from_user.id
-
-    if not user_data[user_id]["location_done"]:
-        await message.answer(
-            "Будь ласка, обери локацію написавши команду /start і вибравши її з пропонованого меню."
-        )
-        return
-    if not user_data[user_id]["checklist_done"]:
-        await message.answer(
-            "Будь ласка, обери пункти з чек листа, вибравши їх з пропонованого меню."
-        )
-        await send_checklist(user_id)
-        return
-    if not user_data[user_id]["comment_state"]:
-        await message.answer(
-            "Будь ласка, обери фінальний пункт з чек листа, вибравши їх з пропонованого меню."
-        )
-        await final_option(user_id)
-        return
-
     user_data[user_id]["comment"] = message.text
     await message.answer(
         "Тепер можеш завантажити фото, якщо є "
